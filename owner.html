@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Owner Panel - VidFeed</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0b0b0b; color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 20px;
+  }
+  h1 { font-size: 20px; }
+  #gate {
+    max-width: 340px; margin: 80px auto; text-align: center;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  #gate input {
+    padding: 12px; border-radius: 10px; border: 1px solid #333; background: #161616; color: #fff;
+  }
+  #gate button, .btn {
+    padding: 10px 14px; border-radius: 10px; border: none; background: #fe2c55; color: #fff;
+    font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .btn.gray { background: #333; }
+  #panel { display: none; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #222; font-size: 13px; }
+  .status-active { color: #4caf50; }
+  .status-banned { color: #f44336; }
+  .status-trial_banned { color: #ff9800; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .actions input {
+    width: 60px; padding: 6px; border-radius: 6px; border: 1px solid #333; background: #161616; color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <h1>🔒 Owner Panel</h1>
+  <input id="pw" type="password" placeholder="Password owner" />
+  <button onclick="login()">Masuk</button>
+  <div id="gateError" style="color:#f44336;font-size:12px;"></div>
+</div>
+
+<div id="panel">
+  <h1>👀 Pantau &amp; Kelola User</h1>
+  <button class="btn gray" onclick="loadUsers()">🔄 Refresh</button>
+  <table>
+    <thead>
+      <tr><th>Username</th><th>Status</th><th>Device</th><th>Lokasi</th><th>Terakhir Aktif</th><th>Aksi</th></tr>
+    </thead>
+    <tbody id="userRows"></tbody>
+  </table>
+</div>
+
+<script>
+let ownerPassword = '';
+
+function login() {
+  ownerPassword = document.getElementById('pw').value;
+  loadUsers();
+}
+
+function fmtDate(ts) {
+  if (!ts) return '-';
+  return new Date(ts).toLocaleString('id-ID');
+}
+
+function statusLabel(u) {
+  if (u.status === 'banned') return 'Banned Permanent';
+  if (u.status === 'trial_banned') return `Trial Ban s/d ${fmtDate(u.bannedUntil)}`;
+  return 'Aktif';
+}
+
+async function loadUsers() {
+  const res = await fetch('/api/owner-users', {
+    headers: { 'x-owner-password': ownerPassword }
+  });
+  const data = await res.json();
+
+  if (!res.ok) {
+    document.getElementById('gateError').textContent = data.error || 'Gagal login';
+    return;
+  }
+
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('panel').style.display = 'block';
+
+  const rows = document.getElementById('userRows');
+  rows.innerHTML = '';
+  data.users.forEach(u => {
+    const tr = document.createElement('tr');
+    const shortDevice = (u.device || '-').length > 40 ? (u.device.slice(0, 40) + '...') : (u.device || '-');
+    tr.innerHTML = `
+      <td>${u.username}</td>
+      <td class="status-${u.status}">${statusLabel(u)}</td>
+      <td title="${u.device || ''}">${shortDevice}</td>
+      <td>${u.location || '-'}${u.ip ? ' <br><small style="color:#777">' + u.ip + '</small>' : ''}</td>
+      <td>${fmtDate(u.lastSeen)}</td>
+      <td class="actions">
+        <button class="btn" onclick="banUser('${u.username}','ban_permanent')">Ban Permanent</button>
+        <input type="number" id="hrs-${u.username}" value="24" title="jam" />
+        <button class="btn gray" onclick="banTrial('${u.username}')">Ban Trial</button>
+        <button class="btn gray" onclick="banUser('${u.username}','unban')">Unban</button>
+      </td>
+    `;
+    rows.appendChild(tr);
+  });
+}
+
+async function banUser(username, action) {
+  await fetch('/api/owner-ban', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-owner-password': ownerPassword },
+    body: JSON.stringify({ username, action })
+  });
+  loadUsers();
+}
+
+async function banTrial(username) {
+  const hours = parseInt(document.getElementById('hrs-' + username).value, 10) || 24;
+  await fetch('/api/owner-ban', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-owner-password': ownerPassword },
+    body: JSON.stringify({ username, action: 'ban_trial', hours })
+  });
+  loadUsers();
+}
+</script>
+
+</body>
+</html>
