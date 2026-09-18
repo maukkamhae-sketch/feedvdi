@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>VidFeed</title>
+<style>
+  :root {
+    --bg: #000;
+    --accent: #fe2c55;
+    --text: #fff;
+    --text-dim: #b3b3b3;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+  }
+
+  #loading3d {
+    position: fixed; inset: 0; background: #000; z-index: 999;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+  }
+  .cube-stage { perspective: 500px; width: 70px; height: 70px; }
+  .cube {
+    width: 70px; height: 70px; position: relative; transform-style: preserve-3d;
+    animation: spin 2.2s infinite linear;
+  }
+  .cube div {
+    position: absolute; width: 70px; height: 70px;
+    background: rgba(254,44,85,.18); border: 1.5px solid var(--accent);
+  }
+  .face-front  { transform: translateZ(35px); }
+  .face-back   { transform: rotateY(180deg) translateZ(35px); }
+  .face-right  { transform: rotateY(90deg) translateZ(35px); }
+  .face-left   { transform: rotateY(-90deg) translateZ(35px); }
+  .face-top    { transform: rotateX(90deg) translateZ(35px); }
+  .face-bottom { transform: rotateX(-90deg) translateZ(35px); }
+  @keyframes spin {
+    0%   { transform: rotateX(0deg) rotateY(0deg); }
+    100% { transform: rotateX(360deg) rotateY(360deg); }
+  }
+  #loading3d p { color: var(--text-dim); font-size: 13px; letter-spacing: .5px; }
+
+  #login {
+    height: 100dvh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; padding: 30px; text-align: center;
+  }
+  #login .logo { font-size: 44px; }
+  #login h1 { margin: 0; font-size: 22px; }
+  #login p { color: var(--text-dim); margin: 0; font-size: 14px; }
+  #login input {
+    width: 100%; max-width: 280px; padding: 14px 16px; border-radius: 24px; border: none;
+    background: #1c1c1c; color: var(--text); font-size: 15px; outline: none; text-align: center;
+  }
+  #login button {
+    width: 100%; max-width: 280px; padding: 14px; border-radius: 24px; border: none;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 15px;
+  }
+  #loginError { color: #ff5c5c; font-size: 13px; min-height: 16px; }
+
+  #banned {
+    height: 100dvh; display: none; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; padding: 30px; text-align: center;
+  }
+  #banned .icon { font-size: 50px; }
+  #banned h1 { margin: 0; font-size: 20px; }
+  #banned p { color: var(--text-dim); font-size: 14px; margin: 0; max-width: 300px; }
+
+  #app { display: none; height: 100dvh; }
+  #feed { height: 100dvh; overflow-y: scroll; scroll-snap-type: y mandatory; }
+  .item {
+    height: 100dvh; scroll-snap-align: start; position: relative;
+    display: flex; align-items: center; justify-content: center; background: #000;
+  }
+  .item video {
+    max-height: 100%; max-width: 100%; width: 100%; height: 100%;
+    object-fit: contain; background: #000;
+  }
+  .meta {
+    position: absolute; bottom: 90px; left: 16px; right: 90px;
+    text-shadow: 0 1px 4px rgba(0,0,0,.8);
+    pointer-events: none;
+  }
+  .meta .author { font-weight: 700; margin-bottom: 4px; }
+  .meta .title { font-size: 14px; color: var(--text-dim); }
+  .status {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: var(--text-dim); font-size: 14px; text-align: center; width: 80%;
+  }
+
+  .center-icon {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 46px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.7);
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  }
+  .center-icon.show { opacity: 1; }
+
+  .mute-btn {
+    position: absolute; bottom: 90px; right: 16px; z-index: 5;
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: rgba(0,0,0,.45); color: #fff; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Overlay kecil pas video lagi buffering/macet */
+  .load-overlay {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px;
+    background: rgba(0,0,0,.35); color: var(--text-dim); font-size: 13px; text-align: center; padding: 20px;
+    pointer-events: none;
+  }
+  .load-overlay.show { display: flex; }
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.25); border-top-color: #fff;
+    animation: spin2 0.8s linear infinite;
+  }
+  @keyframes spin2 { to { transform: rotate(360deg); } }
+
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; background: linear-gradient(rgba(0,0,0,.6), transparent);
+  }
+  #topbar .greet { font-weight: 700; font-size: 15px; }
+  #topbar .topbtns { display: flex; gap: 8px; }
+  #topbar button {
+    background: rgba(255,255,255,.15); color: #fff; border: none; border-radius: 16px;
+    padding: 6px 12px; font-size: 12px;
+  }
+
+  #friendsOverlay {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,.75); align-items: flex-end; justify-content: center;
+  }
+  #friendsPanel {
+    background: #141414; width: 100%; max-width: 480px; border-radius: 18px 18px 0 0;
+    padding: 18px; max-height: 80vh; overflow-y: auto;
+  }
+  #friendsPanel h2 { margin: 0 0 6px; font-size: 17px; }
+  #friendsPanel .stats { color: var(--text-dim); font-size: 13px; margin-bottom: 14px; }
+  #friendSearchRow { display: flex; gap: 8px; margin-bottom: 14px; }
+  #friendSearchRow input {
+    flex: 1; padding: 10px 12px; border-radius: 16px; border: none; background: #222; color: #fff; outline: none;
+  }
+  #friendSearchRow button {
+    padding: 10px 14px; border-radius: 16px; border: none; background: var(--accent); color: #fff; font-weight: 600; font-size: 13px;
+  }
+  .friend-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid #222; font-size: 14px;
+  }
+  .friend-row button {
+    padding: 6px 12px; border-radius: 14px; border: none; font-size: 12px; font-weight: 600;
+  }
+  .btn-follow { background: var(--accent); color: #fff; }
+  .btn-unfollow { background: #333; color: #fff; }
+  #closeFriends {
+    display: block; margin: 6px auto 0; background: transparent; color: var(--text-dim);
+    border: none; font-size: 13px;
+  }
+  #searchResult { font-size: 13px; color: #ff5c5c; min-height: 16px; }
+
+  #uploadOverlay {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,.75); align-items: flex-end; justify-content: center;
+  }
+  #uploadPanel {
+    background: #141414; width: 100%; max-width: 480px; border-radius: 18px 18px 0 0;
+    padding: 18px;
+  }
+  #uploadPanel h2 { margin: 0 0 6px; font-size: 17px; }
+  #uploadPanel p.hint { color: var(--text-dim); font-size: 12px; margin: 0 0 14px; }
+  #uploadPanel input[type="file"] {
+    width: 100%; color: var(--text-dim); font-size: 13px; margin-bottom: 10px;
+  }
+  #uploadPanel input[type="text"] {
+    width: 100%; padding: 10px 12px; border-radius: 12px; border: none;
+    background: #222; color: #fff; outline: none; margin-bottom: 12px; font-size: 14px;
+  }
+  #uploadPanel button.submit {
+    width: 100%; padding: 12px; border-radius: 16px; border: none;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 14px;
+  }
+  #uploadStatus { font-size: 13px; margin: 10px 0; min-height: 16px; }
+  #closeUpload {
+    display: block; margin: 10px auto 0; background: transparent; color: var(--text-dim);
+    border: none; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading3d">
+  <div class="cube-stage">
+    <div class="cube">
+      <div class="face-front"></div>
+      <div class="face-back"></div>
+      <div class="face-right"></div>
+      <div class="face-left"></div>
+      <div class="face-top"></div>
+      <div class="face-bottom"></div>
+    </div>
+  </div>
+  <p id="loadingText">Menyiapkan...</p>
+</div>
+
+<div id="login" style="display:none;">
+  <div class="logo">🎬</div>
+  <h1>Selamat datang di VidFeed</h1>
+  <p>Masukin nama kamu buat mulai nonton video lucu &amp; viral</p>
+  <input id="nameInput" type="text" placeholder="Nama kamu..." />
+  <button id="loginBtn">Masuk</button>
+  <div id="loginError"></div>
+</div>
+
+<div id="banned">
+  <div class="icon">🚫</div>
+  <h1 id="bannedTitle">Akun Diblokir</h1>
+  <p id="bannedDesc"></p>
+</div>
+
+<div id="app">
+  <div id="topbar">
+    <div class="greet" id="greetText"></div>
+    <div class="topbtns">
+      <button id="feedToggleBtn">🎬 Komunitas</button>
+      <button id="uploadBtn">📤 Upload</button>
+      <button id="friendsBtn">👥 Teman</button>
+      <button id="refreshBtn">🔄 Kata kunci lain</button>
+    </div>
+  </div>
+  <div id="feed"></div>
+</div>
+
+<div id="uploadOverlay">
+  <div id="uploadPanel">
+    <h2>📤 Upload Video</h2>
+    <p class="hint">Video pendek, maksimal sekitar 4MB. Nanti kelihatan sama pengguna lain di tab Komunitas.</p>
+    <input id="videoFile" type="file" accept="video/*" />
+    <input id="captionInput" type="text" placeholder="Tulis caption (opsional)..." />
+    <div id="uploadStatus"></div>
+    <button class="submit" id="submitUploadBtn">Upload</button>
+    <button id="closeUpload">Tutup</button>
+  </div>
+</div>
+
+<div id="friendsOverlay">
+  <div id="friendsPanel">
+    <h2>👥 Teman</h2>
+    <div class="stats" id="friendStats">Following: 0 · Followers: 0</div>
+    <div id="friendSearchRow">
+      <input id="friendSearchInput" type="text" placeholder="Cari nama user..." />
+      <button id="friendSearchBtn">Cari</button>
+    </div>
+    <div id="searchResult"></div>
+    <div id="followingList"></div>
+    <button id="closeFriends">Tutup</button>
+  </div>
+</div>
+
+<script>
+var loading3d = document.getElementById('loading3d');
+var loadingText = document.getElementById('loadingText');
+var loginScreen = document.getElementById('login');
+var bannedScreen = document.getElementById('banned');
+var app = document.getElementById('app');
+var nameInput = document.getElementById('nameInput');
+var loginBtn = document.getElementById('loginBtn');
+var loginError = document.getElementById('loginError');
+var greetText = document.getElementById('greetText');
+var feed = document.getElementById('feed');
+var refreshBtn = document.getElementById('refreshBtn');
+var friendsBtn = document.getElementById('friendsBtn');
+var friendsOverlay = document.getElementById('friendsOverlay');
+var closeFriends = document.getElementById('closeFriends');
+var friendStats = document.getElementById('friendStats');
+var friendSearchInput = document.getElementById('friendSearchInput');
+var friendSearchBtn = document.getElementById('friendSearchBtn');
+var searchResult = document.getElementById('searchResult');
+var followingList = document.getElementById('followingList');
+var feedToggleBtn = document.getElementById('feedToggleBtn');
+var uploadBtn = document.getElementById('uploadBtn');
+var uploadOverlay = document.getElementById('uploadOverlay');
+var closeUpload = document.getElementById('closeUpload');
+var videoFile = document.getElementById('videoFile');
+var captionInput = document.getElementById('captionInput');
+var submitUploadBtn = document.getElementById('submitUploadBtn');
+var uploadStatus = document.getElementById('uploadStatus');
+
+var feedMode = 'trending';
+var NAME_KEY = 'vidfeed_username';
+var KEYWORDS = ["lucu", "viral", "fyp", "kocak", "receh"];
+var currentUsername = '';
+var globalMuted = true;
+
+function showOnly(el) {
+  [loginScreen, bannedScreen, app, loading3d].forEach(function (e) { e.style.display = 'none'; });
+  el.style.display = el === app ? 'block' : 'flex';
+}
+
+function checkAndLogin(name) {
+  showOnly(loading3d);
+  loadingText.textContent = 'Memeriksa akun...';
+  fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: name })
+  }).then(function (res) {
+    return res.json();
+  }).then(function (data) {
+    if (data.banned) {
+      var desc = 'Akun kamu diblokir permanen oleh admin karena melanggar aturan.';
+      if (data.type !== 'permanent') {
+        desc = 'Akun kamu diblokir sementara sampai ' + new Date(data.until).toLocaleString('id-ID') + '.';
+      }
+      document.getElementById('bannedDesc').textContent = desc;
+      showOnly(bannedScreen);
+      return;
+    }
+    localStorage.setItem(NAME_KEY, name);
+    currentUsername = name;
+    greetText.textContent = 'Halo, ' + name + ' 👋';
+    showOnly(app);
+    loadFeed();
+  }).catch(function () {
+    loginError.textContent = 'Gagal konek ke server, coba lagi.';
+    showOnly(loginScreen);
+  });
+}
+
+loginBtn.addEventListener('click', function () {
+  var name = nameInput.value.trim();
+  if (!name) return;
+  loginError.textContent = '';
+  checkAndLogin(name);
+});
+nameInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') loginBtn.click(); });
+refreshBtn.addEventListener('click', function () { loadTrending(); });
+
+feedToggleBtn.addEventListener('click', function () {
+  if (feedMode === 'trending') {
+    feedMode = 'community';
+    feedToggleBtn.textContent = '🔥 Trending';
+    refreshBtn.style.display = 'none';
+    loadCommunityFeed();
+  } else {
+    feedMode = 'trending';
+    feedToggleBtn.textContent = '🎬 Komunitas';
+    refreshBtn.style.display = 'inline-block';
+    loadTrending();
+  }
+});
+
+function loadFeed() {
+  if (feedMode === 'community') loadCommunityFeed();
+  else loadTrending();
+}
+
+var observer = new IntersectionObserver(function (entries) {
+  entries.forEach(function (entry) {
+    var video = entry.target;
+    if (entry.isIntersecting) {
+      // Paksa pause SEMUA video lain di feed dulu, biar nggak ada 2 video
+      // yang kebetulan bersuara bareng pas transisi scroll.
+      document.querySelectorAll('#feed video').forEach(function (v) {
+        if (v !== video) v.pause();
+      });
+      video.currentTime = 0;
+      video.muted = globalMuted;
+      video.play().catch(function () {});
+    } else {
+      video.pause();
+    }
+  });
+}, { threshold: 0.6 });
+
+// Bikin 1 item video, lengkap dengan tap-to-pause, tombol mute,
+// dan "watchdog" yang otomatis coba benerin sendiri kalau video macet/gagal.
+function buildVideoItem(opts) {
+  var src = opts.src;
+  var author = opts.author;
+  var title = opts.title;
+  var item = document.createElement('div');
+  item.className = 'item';
+  item.innerHTML =
+    '<video src="' + src + '" loop playsinline preload="auto"></video>' +
+    '<div class="load-overlay"><div class="spinner"></div><span>Memuat video...</span></div>' +
+    '<div class="center-icon">▶</div>' +
+    '<button class="mute-btn">🔇</button>' +
+    '<div class="meta">' +
+      '<div class="author">@' + (author || 'unknown') + '</div>' +
+      '<div class="title">' + (title || '') + '</div>' +
+    '</div>';
+
+  var videoEl = item.querySelector('video');
+  var centerIcon = item.querySelector('.center-icon');
+  var muteBtn = item.querySelector('.mute-btn');
+  var loadOverlay = item.querySelector('.load-overlay');
+
+  videoEl.muted = globalMuted;
+  muteBtn.textContent = globalMuted ? '🔇' : '🔊';
+
+  videoEl.addEventListener('click', function () {
+    if (videoEl.paused) {
+      videoEl.play().catch(function () {});
+      centerIcon.textContent = '▶';
+    } else {
+      videoEl.pause();
+      centerIcon.textContent = '⏸';
+    }
+    centerIcon.classList.add('show');
+    setTimeout(function () { centerIcon.classList.remove('show'); }, 500);
+  });
+
+  muteBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    globalMuted = !globalMuted;
+    videoEl.muted = globalMuted;
+    muteBtn.textContent = globalMuted ? '🔇' : '🔊';
+    document.querySelectorAll('#feed video').forEach(function (v) { v.muted = globalMuted; });
+    document.querySelectorAll('.mute-btn').forEach(function (b) { b.textContent = globalMuted ? '🔇' : '🔊'; });
+  });
+
+  // ---------- Watchdog anti-macet ----------
+  // Kalau video kena "waiting" (buffering) dan nggak sembuh sendiri dalam
+  // beberapa detik, atau kena "error" langsung, coba reload sekali.
+  // Kalau reload juga gagal, tampilkan pesan biar user tau videonya
+  // memang rusak (bukan hp/koneksi user).
+  var stallTimer = null;
+  var reloadedOnce = false;
+
+  function showBuffering() { loadOverlay.classList.add('show'); }
+  function hideBuffering() { loadOverlay.classList.remove('show'); }
+
+  function tryReload() {
+    if (reloadedOnce) {
+      var nextItem = item.nextElementSibling;
+      if (nextItem) {
+        loadOverlay.querySelector('span').textContent = 'Video ini bermasalah, lanjut ke video berikutnya...';
+        loadOverlay.classList.add('show');
+        setTimeout(function () {
+          nextItem.scrollIntoView({ behavior: 'smooth' });
+          hideBuffering();
+        }, 900);
+      } else {
+        hideBuffering();
+        loadOverlay.querySelector('span').textContent = 'Video gagal dimuat, geser buat lanjut';
+        loadOverlay.classList.add('show');
+      }
+      return;
+    }
+    reloadedOnce = true;
+    var currentSrc = videoEl.getAttribute('src');
+    videoEl.removeAttribute('src');
+    videoEl.load();
+    setTimeout(function () {
+      videoEl.setAttribute('src', currentSrc);
+      videoEl.load();
+      videoEl.play().catch(function () {});
+    }, 300);
+  }
+
+  videoEl.addEventListener('waiting', function () {
+    showBuffering();
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(function () {
+      tryReload();
+    }, 6000); // kalau macet lebih dari 6 detik, coba reload
+  });
+
+  videoEl.addEventListener('playing', function () {
+    hideBuffering();
+    reloadedOnce = false; // video jalan normal lagi, reset watchdog
+    if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+  });
+
+  videoEl.addEventListener('error', function () {
+    if (stallTimer) clearTimeout(stallTimer);
+    tryReload();
+  });
+
+  return item;
+}
+
+function loadTrending() {
+  var keyword = KEYWORDS[Math.floor(Math.random() * KEYWORDS.length)];
+  feed.innerHTML = '<div class="status">Lagi ambil video "' + keyword + '" buat kamu...</div>';
+  fetch('/api/trending?keyword=' + encodeURIComponent(keyword))
+    .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+    .then(function (r) {
+      if (!r.ok || !r.data.videos || r.data.videos.length === 0) {
+        feed.innerHTML = '<div class="status">⚠ Gagal ambil video. Coba tekan "Kata kunci lain" di atas.</div>';
+        return;
+      }
+      feed.innerHTML = '';
+      r.data.videos.forEach(function (v) {
+        var videoSrc = (v.source === 'tiktok')
+          ? '/api/video-proxy?url=' + encodeURIComponent(v.videoUrl)
+          : v.videoUrl;
+        var item = buildVideoItem({ src: videoSrc, author: v.author, title: v.title });
+        feed.appendChild(item);
+        observer.observe(item.querySelector('video'));
+      });
+    })
+    .catch(function () {
+      feed.innerHTML = '<div class="status">⚠ Terjadi kesalahan. Coba lagi sebentar.</div>';
+    });
+}
+
+function loadCommunityFeed() {
+  feed.innerHTML = '<div class="status">Memuat video dari komunitas...</div>';
+  fetch('/api/list-uploads')
+    .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+    .then(function (r) {
+      if (!r.ok || !r.data.uploads || r.data.uploads.length === 0) {
+        feed.innerHTML = '<div class="status">Belum ada video upload dari user. Jadi yang pertama upload! 📤</div>';
+        return;
+      }
+      feed.innerHTML = '';
+      r.data.uploads.forEach(function (u) {
+        var item = buildVideoItem({ src: '/api/get-upload?id=' + u.id, author: u.username, title: u.caption });
+        feed.appendChild(item);
+        observer.observe(item.querySelector('video'));
+      });
+    })
+    .catch(function () {
+      feed.innerHTML = '<div class="status">⚠ Terjadi kesalahan. Coba lagi sebentar.</div>';
+    });
+}
+
+function fileToBase64(file) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onload = function () { resolve(reader.result.split(',')[1]); };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+uploadBtn.addEventListener('click', function () {
+  uploadOverlay.style.display = 'flex';
+  uploadStatus.textContent = '';
+});
+closeUpload.addEventListener('click', function () { uploadOverlay.style.display = 'none'; });
+
+submitUploadBtn.addEventListener('click', function () {
+  var file = videoFile.files[0];
+  if (!file) { uploadStatus.textContent = 'Pilih video dulu ya.'; uploadStatus.style.color = '#ff5c5c'; return; }
+  if (file.size > 4.5 * 1024 * 1024) {
+    uploadStatus.textContent = 'Video terlalu besar (maks ~4MB). Pakai video pendek/kualitas rendah.';
+    uploadStatus.style.color = '#ff5c5c';
+    return;
+  }
+
+  uploadStatus.textContent = 'Mengupload...';
+  uploadStatus.style.color = 'var(--text-dim)';
+  submitUploadBtn.disabled = true;
+
+  fileToBase64(file).then(function (base64) {
+    return fetch('/api/upload-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: currentUsername,
+        caption: captionInput.value.trim(),
+        videoBase64: base64,
+        mimeType: file.type || 'video/mp4'
+      })
+    });
+  }).then(function (res) {
+    return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+  }).then(function (r) {
+    if (!r.ok) {
+      uploadStatus.textContent = r.data.error || 'Gagal upload.';
+      uploadStatus.style.color = '#ff5c5c';
+    } else {
+      uploadStatus.textContent = 'Berhasil diupload! 🎉';
+      uploadStatus.style.color = '#4caf50';
+      videoFile.value = '';
+      captionInput.value = '';
+      setTimeout(function () { uploadOverlay.style.display = 'none'; }, 1200);
+    }
+  }).catch(function () {
+    uploadStatus.textContent = 'Terjadi kesalahan saat upload.';
+    uploadStatus.style.color = '#ff5c5c';
+  }).finally(function () {
+    submitUploadBtn.disabled = false;
+  });
+});
+
+function loadFriendsPanel() {
+  fetch('/api/follow?username=' + encodeURIComponent(currentUsername))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      friendStats.textContent = 'Following: ' + data.following.length + ' · Followers: ' + data.followers.length;
+      if (data.following.length) {
+        followingList.innerHTML = data.following.map(function (u) {
+          return '<div class="friend-row"><span>' + u + '</span>' +
+            '<button class="btn-unfollow" onclick="toggleFollow(\'' + u + '\',\'unfollow\')">Berhenti</button></div>';
+        }).join('');
+      } else {
+        followingList.innerHTML = '<div class="friend-row" style="color:var(--text-dim);border:none;">Belum follow siapa-siapa.</div>';
+      }
+    });
+}
+
+function toggleFollow(target, action) {
+  fetch('/api/follow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: currentUsername, target: target, action: action })
+  }).then(function () {
+    searchResult.textContent = '';
+    loadFriendsPanel();
+  });
+}
+
+friendsBtn.addEventListener('click', function () {
+  friendsOverlay.style.display = 'flex';
+  loadFriendsPanel();
+});
+closeFriends.addEventListener('click', function () { friendsOverlay.style.display = 'none'; });
+
+friendSearchBtn.addEventListener('click', function () {
+  var target = friendSearchInput.value.trim().toLowerCase();
+  searchResult.textContent = '';
+  if (!target) return;
+  if (target === currentUsername.toLowerCase()) {
+    searchResult.textContent = 'Nggak bisa follow diri sendiri ya.';
+    return;
+  }
+  fetch('/api/follow?username=' + encodeURIComponent(currentUsername))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var isFollowing = data.following.indexOf(target) !== -1;
+      searchResult.innerHTML = '';
+      var row = document.createElement('div');
+      row.className = 'friend-row';
+      row.innerHTML =
+        '<span>' + target + '</span>' +
+        '<button class="' + (isFollowing ? 'btn-unfollow' : 'btn-follow') + '">' +
+        (isFollowing ? 'Berhenti' : 'Follow') +
+        '</button>';
+      row.querySelector('button').addEventListener('click', function () {
+        toggleFollow(target, isFollowing ? 'unfollow' : 'follow');
+      });
+      searchResult.appendChild(row);
+    });
+});
+
+window.addEventListener('load', function () {
+  var savedName = localStorage.getItem(NAME_KEY);
+  setTimeout(function () {
+    if (savedName) {
+      checkAndLogin(savedName);
+    } else {
+      showOnly(loginScreen);
+    }
+  }, 900);
+});
+</script>
+
+</body>
+</html>
