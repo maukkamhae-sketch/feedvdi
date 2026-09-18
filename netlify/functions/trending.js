@@ -1,76 +1,116 @@
 // Netlify Function: /api/trending?keyword=lucu
-// Ambil video "viral/lucu" TikTok lewat fitur search hashtag dari API publik tikwm.com
-// Catatan: ini API pihak ketiga tidak resmi, jadi hasil pencarian bisa berubah-ubah / kadang gagal.
+// Urutan sumber video: tikwm.com (TikTok asli) -> Pexels -> Pixabay
+// Kalau satu sumber gagal/kosong, otomatis lanjut ke sumber berikutnya.
 //
-// Versi ini menambahkan:
-// - logging respons asli (biar gampang debug di Netlify Function Logs)
-// - fallback ke video dari Pexels API kalau tikwm.com gagal / diblokir
-//
-// PENTING: API key Pexels JANGAN ditulis langsung di sini.
-// Simpan di Netlify -> Site configuration -> Environment variables
-// dengan nama PEXELS_API_KEY, lalu deploy ulang.
+// Environment variables yang dibutuhkan (set di Netlify -> Environment variables):
+// - PEXELS_API_KEY
+// - PIXABAY_API_KEY
 
 const DEFAULT_KEYWORDS = ["lucu", "viral", "fyp", "kocak", "receh"];
 const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
+const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY;
 
-// Ambil video fallback dari Pexels (video pendek/vertikal populer)
-async function getFallbackVideos(keyword) {
-  if (!PEXELS_API_KEY) {
-    console.log("[fallback] PEXELS_API_KEY belum diset di environment variables");
-    return [];
+// ---------- Sumber 1: tikwm.com (TikTok asli) ----------
+async function getFromTikwm(keyword) {
+  const params = new URLSearchParams();
+  params.append("keywords", keyword);
+  params.append("count", "20");
+  params.append("cursor", "0");
+  params.append("web", "1");
+  params.append("hd", "1");
+
+  const res = await fetch("https://www.tikwm.com/api/feed/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "Mozilla/5.0",
+    },
+    body: params.toString(),
+  });
+
+  const rawText = await res.text();
+  console.log("[tikwm] status:", res.status, "body:", rawText.substring(0, 200));
+
+  const data = JSON.parse(rawText); // kalau bukan JSON, ini otomatis throw -> ditangkap di handler
+
+  if (data.code !== 0 || !data.data || !data.data.videos || data.data.videos.length === 0) {
+    throw new Error("tikwm: tidak ada video valid");
   }
 
-  try {
-    // Coba search berdasarkan keyword dulu, biar masih nyambung sama yang dicari user
-    const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(
-      keyword
-    )}&per_page=10&orientation=portrait`;
+  return data.data.videos.map((v) => ({
+    videoUrl: v.play,
+    cover: v.cover,
+    title: v.title || "",
+    author: (v.author && v.author.nickname) || "",
+    source: "tiktok",
+  }));
+}
 
-    const res = await fetch(searchUrl, {
+// ---------- Sumber 2: Pexels ----------
+async function getFromPexels(keyword) {
+  if (!PEXELS_API_KEY) throw new Error("PEXELS_API_KEY belum diset");
+
+  const searchUrl = `https://api.pexels.com/videos/search?query=${encodeURIComponent(
+    keyword
+  )}&per_page=30&orientation=portrait`;
+
+  const res = await fetch(searchUrl, { headers: { Authorization: PEXELS_API_KEY } });
+  const rawText = await res.text();
+  console.log("[pexels] status:", res.status);
+
+  const data = JSON.parse(rawText);
+  let videos = data.videos || [];
+
+  if (videos.length === 0) {
+    // fallback ke video populer kalau keyword nggak ketemu
+    const popRes = await fetch("https://api.pexels.com/videos/popular?per_page=30", {
       headers: { Authorization: PEXELS_API_KEY },
     });
-
-    const rawText = await res.text();
-    console.log("[fallback] pexels status:", res.status);
-
-    const data = JSON.parse(rawText);
-
-    let videos = (data.videos || []).map((v) => {
-      // Pexels punya beberapa kualitas file, ambil yang paling kecil/hd biar ringan
-      const file =
-        v.video_files.find((f) => f.quality === "sd") || v.video_files[0];
-      return {
-        videoUrl: file.link,
-        cover: v.image,
-        title: "Video trending (fallback)",
-        author: (v.user && v.user.name) || "Pexels",
-      };
-    });
-
-    // Kalau search keyword-nya kosong, ambil video populer aja
-    if (videos.length === 0) {
-      const popRes = await fetch(
-        "https://api.pexels.com/videos/popular?per_page=10",
-        { headers: { Authorization: PEXELS_API_KEY } }
-      );
-      const popData = await popRes.json();
-      videos = (popData.videos || []).map((v) => {
-        const file =
-          v.video_files.find((f) => f.quality === "sd") || v.video_files[0];
-        return {
-          videoUrl: file.link,
-          cover: v.image,
-          title: "Video trending (fallback)",
-          author: (v.user && v.user.name) || "Pexels",
-        };
-      });
-    }
-
-    return videos;
-  } catch (e) {
-    console.log("[fallback] gagal ambil dari Pexels:", e.message);
-    return [];
+    const popData = await popRes.json();
+    videos = popData.videos || [];
   }
+
+  if (videos.length === 0) throw new Error("pexels: tidak ada video");
+
+  return videos.map((v) => {
+    const file = v.video_files.find((f) => f.quality === "sd") || v.video_files[0];
+    return {
+      videoUrl: file.link,
+      cover: v.image,
+      title: "Video trending",
+      author: (v.user && v.user.name) || "Pexels",
+      source: "pexels",
+    };
+  });
+}
+
+// ---------- Sumber 3: Pixabay ----------
+async function getFromPixabay(keyword) {
+  if (!PIXABAY_API_KEY) throw new Error("PIXABAY_API_KEY belum diset");
+
+  const searchUrl = `https://pixabay.com/api/videos/?key=${PIXABAY_API_KEY}&q=${encodeURIComponent(
+    keyword
+  )}&per_page=30&safesearch=true`;
+
+  const res = await fetch(searchUrl);
+  const rawText = await res.text();
+  console.log("[pixabay] status:", res.status);
+
+  const data = JSON.parse(rawText);
+  const hits = data.hits || [];
+
+  if (hits.length === 0) throw new Error("pixabay: tidak ada video");
+
+  return hits.map((v) => {
+    const file = v.videos.medium || v.videos.small || v.videos.tiny;
+    return {
+      videoUrl: file.url,
+      cover: "",
+      title: v.tags || "Video trending",
+      author: v.user || "Pixabay",
+      source: "pixabay",
+    };
+  });
 }
 
 exports.handler = async function (event) {
@@ -78,85 +118,42 @@ exports.handler = async function (event) {
     (event.queryStringParameters && event.queryStringParameters.keyword) ||
     DEFAULT_KEYWORDS[Math.floor(Math.random() * DEFAULT_KEYWORDS.length)];
 
-  try {
-    const params = new URLSearchParams();
-    params.append("keywords", keyword);
-    params.append("count", "15");
-    params.append("cursor", "0");
-    params.append("web", "1");
-    params.append("hd", "1");
+  const sources = [
+    { name: "tikwm", fn: getFromTikwm },
+    { name: "pexels", fn: getFromPexels },
+    { name: "pixabay", fn: getFromPixabay },
+  ];
 
-    const res = await fetch("https://www.tikwm.com/api/feed/search", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0",
-      },
-      body: params.toString(),
-    });
+  let lastError = "";
 
-    // Ambil body sebagai teks dulu, biar kita bisa lihat isi aslinya di log
-    // walaupun ternyata bukan JSON (misal HTML halaman error/captcha).
-    const rawText = await res.text();
-
-    console.log("[trending] tikwm status:", res.status);
-    console.log("[trending] tikwm content-type:", res.headers.get("content-type"));
-    console.log("[trending] tikwm body (potongan):", rawText.substring(0, 500));
-
-    let data;
+  for (const src of sources) {
     try {
-      data = JSON.parse(rawText);
-    } catch (parseErr) {
-      console.log("[trending] gagal parse JSON, pakai fallback Pexels. Error:", parseErr.message);
-      const fallback = await getFallbackVideos(keyword);
+      const videos = await src.fn(keyword);
+      console.log(`[trending] berhasil pakai sumber: ${src.name}, jumlah video: ${videos.length}`);
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           keyword,
-          videos: fallback,
-          notice: "Sumber video utama sedang bermasalah, menampilkan video sementara.",
+          videos,
+          usedSource: src.name,
         }),
       };
+    } catch (err) {
+      console.log(`[trending] sumber ${src.name} gagal:`, err.message);
+      lastError = err.message;
+      // lanjut ke sumber berikutnya
     }
-
-    if (data.code !== 0 || !data.data || !data.data.videos || data.data.videos.length === 0) {
-      console.log("[trending] respons tikwm tidak berisi video valid, pakai fallback Pexels. data.code:", data.code);
-      const fallback = await getFallbackVideos(keyword);
-      return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keyword,
-          videos: fallback,
-          notice: "Tidak ada video ditemukan untuk kata kunci ini, menampilkan video sementara.",
-        }),
-      };
-    }
-
-    const videos = data.data.videos.map((v) => ({
-      videoUrl: v.play,
-      cover: v.cover,
-      title: v.title || "",
-      author: (v.author && v.author.nickname) || "",
-    }));
-
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keyword, videos }),
-    };
-  } catch (err) {
-    console.log("[trending] error tak terduga, pakai fallback Pexels:", err.message);
-    const fallback = await getFallbackVideos(keyword);
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        keyword,
-        videos: fallback,
-        notice: "Terjadi kesalahan saat mengambil video, menampilkan video sementara.",
-      }),
-    };
   }
-}; 
+
+  // Semua sumber gagal
+  return {
+    statusCode: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      keyword,
+      videos: [],
+      error: "Semua sumber video gagal diakses. Error terakhir: " + lastError,
+    }),
+  };
+};
