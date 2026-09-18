@@ -87,12 +87,28 @@
   .meta {
     position: absolute; bottom: 90px; left: 16px; right: 90px;
     text-shadow: 0 1px 4px rgba(0,0,0,.8);
+    pointer-events: none;
   }
   .meta .author { font-weight: 700; margin-bottom: 4px; }
   .meta .title { font-size: 14px; color: var(--text-dim); }
   .status {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     color: var(--text-dim); font-size: 14px; text-align: center; width: 80%;
+  }
+
+  /* ---------- Overlay ikon play/pause & mute di tengah video ---------- */
+  .center-icon {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 46px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.7);
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  }
+  .center-icon.show { opacity: 1; }
+
+  .mute-btn {
+    position: absolute; bottom: 90px; right: 16px; z-index: 5;
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: rgba(0,0,0,.45); color: #fff; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
   }
 
   #topbar {
@@ -280,6 +296,10 @@ const NAME_KEY = 'vidfeed_username';
 const KEYWORDS = ["lucu", "viral", "fyp", "kocak", "receh"];
 let currentUsername = '';
 
+// Status mute global. Mulai true (biar autoplay pertama nggak diblokir browser),
+// begitu user tap layar/tombol mute sekali, ini jadi false dan kepake buat semua video berikutnya.
+let globalMuted = true;
+
 function showOnly(el) {
   [loginScreen, bannedScreen, app, loading3d].forEach(e => e.style.display = 'none');
   el.style.display = el === app ? 'block' : 'flex';
@@ -347,10 +367,63 @@ function loadFeed() {
 const observer = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     const video = entry.target;
-    if (entry.isIntersecting) { video.currentTime = 0; video.play().catch(() => {}); }
-    else { video.pause(); }
+    if (entry.isIntersecting) {
+      video.currentTime = 0;
+      video.muted = globalMuted;
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
   });
 }, { threshold: 0.6 });
+
+// Bikin 1 item video (dipakai untuk trending maupun komunitas) lengkap dengan
+// fitur tap-to-pause/play di tengah video, dan tombol mute/unmute.
+function buildVideoItem({ src, author, title }) {
+  const item = document.createElement('div');
+  item.className = 'item';
+  item.innerHTML = `
+    <video src="${src}" loop playsinline preload="metadata"></video>
+    <div class="center-icon">▶️</div>
+    <button class="mute-btn">🔇</button>
+    <div class="meta">
+      <div class="author">@${author || 'unknown'}</div>
+      <div class="title">${title || ''}</div>
+    </div>`;
+
+  const videoEl = item.querySelector('video');
+  const centerIcon = item.querySelector('.center-icon');
+  const muteBtn = item.querySelector('.mute-btn');
+
+  videoEl.muted = globalMuted;
+  muteBtn.textContent = globalMuted ? '🔇' : '🔊';
+
+  // Tap di video = toggle play/pause, sambil nunjukin ikon sebentar di tengah
+  videoEl.addEventListener('click', () => {
+    if (videoEl.paused) {
+      videoEl.play().catch(() => {});
+      centerIcon.textContent = '▶️';
+    } else {
+      videoEl.pause();
+      centerIcon.textContent = '⏸️';
+    }
+    centerIcon.classList.add('show');
+    setTimeout(() => centerIcon.classList.remove('show'), 500);
+  });
+
+  // Tombol mute/unmute — sekali ditekan, jadi setting default buat video-video berikutnya juga
+  muteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    globalMuted = !globalMuted;
+    videoEl.muted = globalMuted;
+    muteBtn.textContent = globalMuted ? '🔇' : '🔊';
+    // Terapkan juga ke video lain yang udah ada di feed biar konsisten
+    document.querySelectorAll('#feed video').forEach(v => { v.muted = globalMuted; });
+    document.querySelectorAll('.mute-btn').forEach(b => { b.textContent = globalMuted ? '🔇' : '🔊'; });
+  });
+
+  return item;
+}
 
 async function loadTrending() {
   const keyword = KEYWORDS[Math.floor(Math.random() * KEYWORDS.length)];
@@ -364,14 +437,7 @@ async function loadTrending() {
     }
     feed.innerHTML = '';
     data.videos.forEach(v => {
-      const item = document.createElement('div');
-      item.className = 'item';
-      item.innerHTML = `
-        <video src="${v.videoUrl}" loop muted playsinline preload="metadata"></video>
-        <div class="meta">
-          <div class="author">@${v.author || 'unknown'}</div>
-          <div class="title">${v.title || ''}</div>
-        </div>`;
+      const item = buildVideoItem({ src: v.videoUrl, author: v.author, title: v.title });
       feed.appendChild(item);
       observer.observe(item.querySelector('video'));
     });
@@ -391,14 +457,7 @@ async function loadCommunityFeed() {
     }
     feed.innerHTML = '';
     data.uploads.forEach(u => {
-      const item = document.createElement('div');
-      item.className = 'item';
-      item.innerHTML = `
-        <video src="/api/get-upload?id=${u.id}" loop muted playsinline preload="metadata"></video>
-        <div class="meta">
-          <div class="author">@${u.username}</div>
-          <div class="title">${u.caption || ''}</div>
-        </div>`;
+      const item = buildVideoItem({ src: '/api/get-upload?id=' + u.id, author: u.username, title: u.caption });
       feed.appendChild(item);
       observer.observe(item.querySelector('video'));
     });
@@ -477,64 +536,4 @@ async function loadFriendsPanel() {
     ? data.following.map(u => `
         <div class="friend-row">
           <span>${u}</span>
-          <button class="btn-unfollow" onclick="toggleFollow('${u}','unfollow')">Berhenti</button>
-        </div>`).join('')
-    : `<div class="friend-row" style="color:var(--text-dim);border:none;">Belum follow siapa-siapa.</div>`;
-}
-
-async function toggleFollow(target, action) {
-  await fetch('/api/follow', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: currentUsername, target, action })
-  });
-  searchResult.textContent = '';
-  loadFriendsPanel();
-}
-
-friendsBtn.addEventListener('click', () => {
-  friendsOverlay.style.display = 'flex';
-  loadFriendsPanel();
-});
-closeFriends.addEventListener('click', () => { friendsOverlay.style.display = 'none'; });
-
-friendSearchBtn.addEventListener('click', async () => {
-  const target = friendSearchInput.value.trim().toLowerCase();
-  searchResult.textContent = '';
-  if (!target) return;
-  if (target === currentUsername.toLowerCase()) {
-    searchResult.textContent = 'Nggak bisa follow diri sendiri ya.';
-    return;
-  }
-  const res = await fetch('/api/follow?username=' + encodeURIComponent(currentUsername));
-  const data = await res.json();
-  const isFollowing = data.following.includes(target);
-  searchResult.innerHTML = '';
-  const row = document.createElement('div');
-  row.className = 'friend-row';
-  row.innerHTML = `
-    <span>${target}</span>
-    <button class="${isFollowing ? 'btn-unfollow' : 'btn-follow'}">
-      ${isFollowing ? 'Berhenti' : 'Follow'}
-    </button>`;
-  row.querySelector('button').addEventListener('click', () => {
-    toggleFollow(target, isFollowing ? 'unfollow' : 'follow');
-  });
-  searchResult.appendChild(row);
-});
-
-// Boot
-window.addEventListener('load', () => {
-  const savedName = localStorage.getItem(NAME_KEY);
-  setTimeout(() => {
-    if (savedName) {
-      checkAndLogin(savedName);
-    } else {
-      showOnly(loginScreen);
-    }
-  }, 900); // kasih jeda dikit biar loading 3D kelihatan
-});
-</script>
-
-</body>
-</html>
+          <
