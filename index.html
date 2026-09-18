@@ -296,8 +296,6 @@ const NAME_KEY = 'vidfeed_username';
 const KEYWORDS = ["lucu", "viral", "fyp", "kocak", "receh"];
 let currentUsername = '';
 
-// Status mute global. Mulai true (biar autoplay pertama nggak diblokir browser),
-// begitu user tap layar/tombol mute sekali, ini jadi false dan kepake buat semua video berikutnya.
 let globalMuted = true;
 
 function showOnly(el) {
@@ -377,19 +375,20 @@ const observer = new IntersectionObserver((entries) => {
   });
 }, { threshold: 0.6 });
 
-// Bikin 1 item video (dipakai untuk trending maupun komunitas) lengkap dengan
-// fitur tap-to-pause/play di tengah video, dan tombol mute/unmute.
-function buildVideoItem({ src, author, title }) {
+function buildVideoItem(opts) {
+  const src = opts.src;
+  const author = opts.author;
+  const title = opts.title;
   const item = document.createElement('div');
   item.className = 'item';
-  item.innerHTML = `
-    <video src="${src}" loop playsinline preload="metadata"></video>
-    <div class="center-icon">▶️</div>
-    <button class="mute-btn">🔇</button>
-    <div class="meta">
-      <div class="author">@${author || 'unknown'}</div>
-      <div class="title">${title || ''}</div>
-    </div>`;
+  item.innerHTML =
+    '<video src="' + src + '" loop playsinline preload="metadata"></video>' +
+    '<div class="center-icon">▶️</div>' +
+    '<button class="mute-btn">🔇</button>' +
+    '<div class="meta">' +
+      '<div class="author">@' + (author || 'unknown') + '</div>' +
+      '<div class="title">' + (title || '') + '</div>' +
+    '</div>';
 
   const videoEl = item.querySelector('video');
   const centerIcon = item.querySelector('.center-icon');
@@ -398,7 +397,6 @@ function buildVideoItem({ src, author, title }) {
   videoEl.muted = globalMuted;
   muteBtn.textContent = globalMuted ? '🔇' : '🔊';
 
-  // Tap di video = toggle play/pause, sambil nunjukin ikon sebentar di tengah
   videoEl.addEventListener('click', () => {
     if (videoEl.paused) {
       videoEl.play().catch(() => {});
@@ -411,15 +409,13 @@ function buildVideoItem({ src, author, title }) {
     setTimeout(() => centerIcon.classList.remove('show'), 500);
   });
 
-  // Tombol mute/unmute — sekali ditekan, jadi setting default buat video-video berikutnya juga
   muteBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     globalMuted = !globalMuted;
     videoEl.muted = globalMuted;
     muteBtn.textContent = globalMuted ? '🔇' : '🔊';
-    // Terapkan juga ke video lain yang udah ada di feed biar konsisten
-    document.querySelectorAll('#feed video').forEach(v => { v.muted = globalMuted; });
-    document.querySelectorAll('.mute-btn').forEach(b => { b.textContent = globalMuted ? '🔇' : '🔊'; });
+    document.querySelectorAll('#feed video').forEach(function (v) { v.muted = globalMuted; });
+    document.querySelectorAll('.mute-btn').forEach(function (b) { b.textContent = globalMuted ? '🔇' : '🔊'; });
   });
 
   return item;
@@ -427,50 +423,49 @@ function buildVideoItem({ src, author, title }) {
 
 async function loadTrending() {
   const keyword = KEYWORDS[Math.floor(Math.random() * KEYWORDS.length)];
-  feed.innerHTML = `<div class="status">Lagi ambil video "${keyword}" buat kamu...</div>`;
+  feed.innerHTML = '<div class="status">Lagi ambil video "' + keyword + '" buat kamu...</div>';
   try {
     const res = await fetch('/api/trending?keyword=' + encodeURIComponent(keyword));
     const data = await res.json();
     if (!res.ok || !data.videos || data.videos.length === 0) {
-      feed.innerHTML = `<div class="status">⚠️ Gagal ambil video. Coba tekan "Kata kunci lain" di atas.</div>`;
+      feed.innerHTML = '<div class="status">⚠️ Gagal ambil video. Coba tekan "Kata kunci lain" di atas.</div>';
       return;
     }
     feed.innerHTML = '';
-    data.videos.forEach(v => {
+    data.videos.forEach(function (v) {
       const item = buildVideoItem({ src: v.videoUrl, author: v.author, title: v.title });
       feed.appendChild(item);
       observer.observe(item.querySelector('video'));
     });
   } catch (err) {
-    feed.innerHTML = `<div class="status">⚠️ Terjadi kesalahan. Coba lagi sebentar.</div>`;
+    feed.innerHTML = '<div class="status">⚠️ Terjadi kesalahan. Coba lagi sebentar.</div>';
   }
 }
 
 async function loadCommunityFeed() {
-  feed.innerHTML = `<div class="status">Memuat video dari komunitas...</div>`;
+  feed.innerHTML = '<div class="status">Memuat video dari komunitas...</div>';
   try {
     const res = await fetch('/api/list-uploads');
     const data = await res.json();
     if (!res.ok || !data.uploads || data.uploads.length === 0) {
-      feed.innerHTML = `<div class="status">Belum ada video upload dari user. Jadi yang pertama upload! 📤</div>`;
+      feed.innerHTML = '<div class="status">Belum ada video upload dari user. Jadi yang pertama upload! 📤</div>';
       return;
     }
     feed.innerHTML = '';
-    data.uploads.forEach(u => {
+    data.uploads.forEach(function (u) {
       const item = buildVideoItem({ src: '/api/get-upload?id=' + u.id, author: u.username, title: u.caption });
       feed.appendChild(item);
       observer.observe(item.querySelector('video'));
     });
   } catch (err) {
-    feed.innerHTML = `<div class="status">⚠️ Terjadi kesalahan. Coba lagi sebentar.</div>`;
+    feed.innerHTML = '<div class="status">⚠️ Terjadi kesalahan. Coba lagi sebentar.</div>';
   }
 }
 
-// ---------- Fitur Upload ----------
 function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
+  return new Promise(function (resolve, reject) {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onload = function () { resolve(reader.result.split(',')[1]); };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
@@ -504,8 +499,8 @@ submitUploadBtn.addEventListener('click', async () => {
         username: currentUsername,
         caption: captionInput.value.trim(),
         videoBase64: base64,
-        mimeType: file.type || 'video/mp4',
-      }),
+        mimeType: file.type || 'video/mp4'
+      })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -516,7 +511,7 @@ submitUploadBtn.addEventListener('click', async () => {
       uploadStatus.style.color = '#4caf50';
       videoFile.value = '';
       captionInput.value = '';
-      setTimeout(() => { uploadOverlay.style.display = 'none'; }, 1200);
+      setTimeout(function () { uploadOverlay.style.display = 'none'; }, 1200);
     }
   } catch (err) {
     uploadStatus.textContent = 'Terjadi kesalahan saat upload.';
@@ -526,14 +521,22 @@ submitUploadBtn.addEventListener('click', async () => {
   }
 });
 
-// ---------- Fitur Teman (follow) ----------
 async function loadFriendsPanel() {
   const res = await fetch('/api/follow?username=' + encodeURIComponent(currentUsername));
   const data = await res.json();
-  friendStats.textContent = `Following: ${data.following.length} · Followers: ${data.followers.length}`;
+  friendStats.textContent = 'Following: ' + data.following.length + ' · Followers: ' + data.followers.length;
 
   followingList.innerHTML = data.following.length
-    ? data.following.map(u => `
-        <div class="friend-row">
-          <span>${u}</span>
-          <
+    ? data.following.map(function (u) {
+        return '<div class="friend-row"><span>' + u + '</span>' +
+          '<button class="btn-unfollow" onclick="toggleFollow(\'' + u + '\',\'unfollow\')">Berhenti</button></div>';
+      }).join('')
+    : '<div class="friend-row" style="color:var(--text-dim);border:none;">Belum follow siapa-siapa.</div>';
+}
+
+async function toggleFollow(target, action) {
+  await fetch('/api/follow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: currentUsername, target: target, action: action })
+  });
