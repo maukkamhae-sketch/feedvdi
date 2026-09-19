@@ -1,8 +1,10 @@
 // GET /api/list-uploads
 // Daftar semua video yang diupload user, terbaru duluan
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 
-exports.handler = async () => {
+exports.handler = async (event) => {
+  connectLambda(event);
+
   const metaStore = getStore('vidfeed-uploads-meta');
   const { blobs } = await metaStore.list();
   const uploads = [];
