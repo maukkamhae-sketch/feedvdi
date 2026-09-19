@@ -1,9 +1,11 @@
 // POST /api/upload-video  { username, caption, videoBase64, mimeType }
 // Simpan video upload user ke Netlify Blobs
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 const crypto = require('crypto');
 
 exports.handler = async (event) => {
+  connectLambda(event);
+
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
