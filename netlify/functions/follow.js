@@ -1,8 +1,10 @@
 // GET  /api/follow?username=X            -> { following: [...], followers: [...] }
 // POST /api/follow  { username, target, action: 'follow'|'unfollow' }
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
+  connectLambda(event);
+
   const store = getStore('vidfeed-follows');
 
   if (event.httpMethod === 'GET') {
