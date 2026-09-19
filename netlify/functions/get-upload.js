@@ -1,8 +1,10 @@
 // GET /api/get-upload?id=xxx
 // Kirim balik file video yang sudah diupload user
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
+  connectLambda(event);
+
   const id = event.queryStringParameters && event.queryStringParameters.id;
   if (!id) return { statusCode: 400, body: 'id wajib diisi' };
 
