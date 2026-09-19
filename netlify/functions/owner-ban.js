@@ -1,8 +1,10 @@
 // POST /api/owner-ban  (header: x-owner-password)  { username, action, hours }
 // action: 'ban_permanent' | 'ban_trial' | 'unban'
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
+  connectLambda(event);
+
   const password = event.headers['x-owner-password'];
   if (!process.env.OWNER_PASSWORD || password !== process.env.OWNER_PASSWORD) {
     return { statusCode: 401, body: JSON.stringify({ error: 'Password owner salah' }) };
