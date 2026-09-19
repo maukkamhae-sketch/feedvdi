@@ -1,8 +1,12 @@
 // GET /api/owner-users  (header: x-owner-password)
 // Daftar semua user buat dipantau owner
-const { getStore } = require('@netlify/blobs');
+const { getStore, connectLambda } = require('@netlify/blobs');
 
 exports.handler = async (event) => {
+  // WAJIB dipanggil di awal, sebelum getStore() — ini yang "nyambungin"
+  // function ke database Blobs pas jalan di production (bukan di dev).
+  connectLambda(event);
+
   const password = event.headers['x-owner-password'];
   if (!process.env.OWNER_PASSWORD || password !== process.env.OWNER_PASSWORD) {
     return { statusCode: 401, body: JSON.stringify({ error: 'Password owner salah' }) };
